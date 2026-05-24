@@ -117,9 +117,9 @@ class LineDetector:
         # Invert: dark → high weight
         col_weights = 255.0 - col_dark
 
-        # Only keep columns within 15% of global minimum darkness
-        global_min = np.min(col_dark)
-        col_weights[col_dark > global_min * 1.15] = 0
+        # Baseline = 10th percentile of column darkness (robust to dead pixels)
+        baseline = np.percentile(col_dark, 10)
+        col_weights[col_dark > baseline * 1.15] = 0
 
         total = np.sum(col_weights)
         if total < 1e-6:
