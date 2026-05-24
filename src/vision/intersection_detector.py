@@ -17,7 +17,7 @@ from src.logger import debug, info
 
 
 # Detection parameters
-AREA_SPIKE_RATIO = 2.5         # Area must exceed average by this factor
+AREA_SPIKE_RATIO = 1.8         # Area must exceed rolling average by this factor (2026-05-24 calib)
 HORIZONTAL_LINE_THRESHOLD = 0.3  # Ratio of horizontal edge pixels to frame width
 SOBEL_THRESHOLD = 50             # Fixed threshold for Sobel edges (tuned for normalized binary)
 CONFIRM_FRAMES = 3               # Consecutive signal frames to confirm
