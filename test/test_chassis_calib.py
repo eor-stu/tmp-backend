@@ -58,88 +58,95 @@ def main():
 
     results: list[dict] = []
 
-    # ------------------------------------------------------------------
-    # Forward distance tests
-    # ------------------------------------------------------------------
-    print("-" * 40)
-    print(f"FORWARD TEST ({FORWARD_DISTANCE}m, {TRIALS} trials)")
-    print(f"Place a tape mark at the starting position.")
-    print()
-
-    for trial in range(1, TRIALS + 1):
-        _prompt(f"[Trial {trial}/{TRIALS}] Press Enter to move forward {FORWARD_DISTANCE}m...")
-
-        t0 = time.time()
-        forward(FORWARD_DISTANCE)
-        elapsed = time.time() - t0
-
-        actual_str = _prompt(f"Enter ACTUAL distance moved (m):")
-        try:
-            actual = float(actual_str) if actual_str else None
-        except ValueError:
-            actual = None
-
-        record = {
-            "test": "forward",
-            "trial": trial,
-            "nominal_distance": FORWARD_DISTANCE,
-            "nominal_speed": Robot.V_FORWARD,
-            "elapsed_s": round(elapsed, 3),
-            "actual_distance": actual,
-            "measured_speed": round(actual / elapsed, 4) if actual and elapsed > 0 else None,
-        }
-        writer.write(record)
-        results.append(record)
-        print(f"  → elapsed={elapsed:.3f}s, actual={actual}m"
-              + (f", measured speed={record['measured_speed']} m/s" if record["measured_speed"] else ""))
+    try:
+        # ------------------------------------------------------------------
+        # Forward distance tests
+        # ------------------------------------------------------------------
+        print("-" * 40)
+        print(f"FORWARD TEST ({FORWARD_DISTANCE}m, {TRIALS} trials)")
+        print(f"Place a tape mark at the starting position.")
         print()
 
-    # ------------------------------------------------------------------
-    # Rotation tests
-    # ------------------------------------------------------------------
-    print("-" * 40)
-    print(f"TURN TEST ({TURN_ANGLE}deg, {TRIALS} trials)")
-    print("Mark the starting orientation.")
-    print()
+        for trial in range(1, TRIALS + 1):
+            _prompt(f"[Trial {trial}/{TRIALS}] Press Enter to move forward {FORWARD_DISTANCE}m...")
 
-    for trial in range(1, TRIALS + 1):
-        _prompt(f"[Trial {trial}/{TRIALS}] Press Enter to turn {TURN_ANGLE}deg...")
+            t0 = time.time()
+            forward(FORWARD_DISTANCE)
+            elapsed = time.time() - t0
 
-        t0 = time.time()
-        turn(TURN_ANGLE)
-        elapsed = time.time() - t0
+            actual_str = _prompt(f"Enter ACTUAL distance moved (m):")
+            try:
+                actual = float(actual_str) if actual_str else None
+            except ValueError:
+                actual = None
 
-        actual_str = _prompt(f"Enter ACTUAL rotation angle (deg):")
-        try:
-            actual = float(actual_str) if actual_str else None
-        except ValueError:
-            actual = None
+            record = {
+                "test": "forward",
+                "trial": trial,
+                "nominal_distance": FORWARD_DISTANCE,
+                "nominal_speed": Robot.V_FORWARD,
+                "elapsed_s": round(elapsed, 3),
+                "actual_distance": actual,
+                "measured_speed": round(actual / elapsed, 4) if actual and elapsed > 0 else None,
+            }
+            writer.write(record)
+            results.append(record)
+            print(f"  → elapsed={elapsed:.3f}s, actual={actual}m"
+                  + (f", measured speed={record['measured_speed']} m/s" if record["measured_speed"] else ""))
+            print()
 
-        record = {
-            "test": "turn",
-            "trial": trial,
-            "nominal_angle": TURN_ANGLE,
-            "nominal_speed": Robot.V_ROTATE,
-            "elapsed_s": round(elapsed, 3),
-            "actual_angle": actual,
-            "measured_speed": round(actual / elapsed, 4) if actual and elapsed > 0 else None,
-        }
-        writer.write(record)
-        results.append(record)
-        print(f"  → elapsed={elapsed:.3f}s, actual={actual}deg"
-              + (f", measured speed={record['measured_speed']} deg/s" if record["measured_speed"] else ""))
+        # ------------------------------------------------------------------
+        # Rotation tests
+        # ------------------------------------------------------------------
+        print("-" * 40)
+        print(f"TURN TEST ({TURN_ANGLE}deg, {TRIALS} trials)")
+        print("Mark the starting orientation.")
         print()
 
-    # ------------------------------------------------------------------
-    # Summary
-    # ------------------------------------------------------------------
-    writer.close()
-    print("=" * 60)
-    print(f"Calibration complete. {len(results)} records written.")
-    print(f"Output: {jsonl_path}")
-    print()
-    print("Next: share the actual_distance and actual_angle values with Claude Code.")
-    print("Claude Code will read the JSONL and suggest updated V_FORWARD / V_ROTATE.")
+        for trial in range(1, TRIALS + 1):
+            _prompt(f"[Trial {trial}/{TRIALS}] Press Enter to turn {TURN_ANGLE}deg...")
+
+            t0 = time.time()
+            turn(TURN_ANGLE)
+            elapsed = time.time() - t0
+
+            actual_str = _prompt(f"Enter ACTUAL rotation angle (deg):")
+            try:
+                actual = float(actual_str) if actual_str else None
+            except ValueError:
+                actual = None
+
+            record = {
+                "test": "turn",
+                "trial": trial,
+                "nominal_angle": TURN_ANGLE,
+                "nominal_speed": Robot.V_ROTATE,
+                "elapsed_s": round(elapsed, 3),
+                "actual_angle": actual,
+                "measured_speed": round(actual / elapsed, 4) if actual and elapsed > 0 else None,
+            }
+            writer.write(record)
+            results.append(record)
+            print(f"  → elapsed={elapsed:.3f}s, actual={actual}deg"
+                  + (f", measured speed={record['measured_speed']} deg/s" if record["measured_speed"] else ""))
+            print()
+
+        # ------------------------------------------------------------------
+        # Summary
+        # ------------------------------------------------------------------
+        print("=" * 60)
+        print(f"Calibration complete. {len(results)} records written.")
+        print(f"Output: {jsonl_path}")
+        print()
+        print("Next: share the actual_distance and actual_angle values with Claude Code.")
+        print("Claude Code will read the JSONL and suggest updated V_FORWARD / V_ROTATE.")
+
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.")
+    finally:
+        writer.close()
+        Robot.stop()
+        print("已停止")
 
 
 if __name__ == "__main__":
