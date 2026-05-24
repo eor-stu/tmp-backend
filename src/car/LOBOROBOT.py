@@ -5,7 +5,7 @@ import time
 import math
 
 try:
-    import smbus2
+    import smbus2 as smbus
 except ImportError:
     smbus = None  # type: ignore[assignment]
 
