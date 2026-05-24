@@ -3,11 +3,12 @@ vision/intersection_detector.py
 Detects intersections (crossroads) in camera frames.
 
 Uses two complementary signals (OR logic):
-1. Contour area spike — white pixel area suddenly increases (2.5x vs average)
+1. Area spike vs fixed baseline — area exceeds a locked straight-line reference
 2. Horizontal edge detection — Sobel X finds strong cross-lines
 
-Either signal alone is enough to trigger (OR), producing a wider detection
-window than requiring both to be present simultaneously (AND).
+The baseline is computed from the first frames (assumed to be on a straight line)
+and locked, avoiding the rolling-average problem where gradual area increases
+are never detected as spikes.
 """
 
 import cv2
@@ -17,24 +18,24 @@ from src.logger import debug, info
 
 
 # Detection parameters
-AREA_SPIKE_RATIO = 1.8         # Area must exceed rolling average by this factor (2026-05-24 calib)
+AREA_SPIKE_RATIO = 1.5          # Area must exceed fixed baseline by this factor
 HORIZONTAL_LINE_THRESHOLD = 0.3  # Ratio of horizontal edge pixels to frame width
 SOBEL_THRESHOLD = 50             # Fixed threshold for Sobel edges (tuned for normalized binary)
 CONFIRM_FRAMES = 3               # Consecutive signal frames to confirm
-HISTORY_SIZE = 10                # Frames of area history for baseline
+BASELINE_WINDOW = 10             # Frames to collect for fixed baseline
 
 
 class IntersectionDetector:
-    """Detects intersections via area spike OR horizontal lines with debouncing."""
+    """Detects intersections via area spike (fixed baseline) OR horizontal lines."""
 
     def __init__(self):
-        self._area_history: list[float] = []
+        self._baseline_samples: list[float] = []
+        self._baseline_area: float | None = None
         self._confirm_count: int = 0
         self._is_at_intersection: bool = False
 
     def reset(self) -> None:
-        """Reset detector state."""
-        self._area_history.clear()
+        """Reset detector state (baseline is preserved)."""
         self._confirm_count = 0
         self._is_at_intersection = False
 
@@ -68,8 +69,8 @@ class IntersectionDetector:
         """
         Detect if car is at an intersection.
 
-        Uses OR logic: area spike OR horizontal edges — either triggers.
-        Wider detection window than AND logic, verified on real hardware.
+        Uses OR logic with a fixed baseline (not rolling average):
+        area spike vs locked straight-line reference, or horizontal edges.
 
         Args:
             binary: Preprocessed binary image (from LineDetector._to_binary)
@@ -80,17 +81,17 @@ class IntersectionDetector:
             True when intersection first confirmed (fires once per entry)
         """
         area = self._compute_line_area(binary)
-        self._area_history.append(area)
 
-        if len(self._area_history) > HISTORY_SIZE:
-            self._area_history.pop(0)
-
-        if len(self._area_history) < 5:
+        # Lock baseline after collecting enough samples on straight line
+        if self._baseline_area is None:
+            self._baseline_samples.append(area)
+            if len(self._baseline_samples) >= BASELINE_WINDOW:
+                self._baseline_area = np.mean(self._baseline_samples)
+                info(f"[Vision] Intersection baseline locked: {self._baseline_area:.0f}")
             return False
 
-        # Signal 1: area spike vs rolling average
-        avg_area = np.mean(self._area_history[:-1])
-        area_spike = area > avg_area * AREA_SPIKE_RATIO and avg_area > 100
+        # Signal 1: area spike vs fixed baseline
+        area_spike = area > self._baseline_area * AREA_SPIKE_RATIO and self._baseline_area > 100
 
         # Signal 2: horizontal cross-lines
         has_horizontal = self._detect_horizontal_lines(binary)
@@ -105,7 +106,7 @@ class IntersectionDetector:
 
         if self._confirm_count >= CONFIRM_FRAMES and not self._is_at_intersection:
             self._is_at_intersection = True
-            info(f"[Vision] Intersection detected! area={area:.0f} avg={avg_area:.0f} "
+            info(f"[Vision] Intersection detected! area={area:.0f} baseline={self._baseline_area:.0f} "
                  f"spike={'Y' if area_spike else 'N'} h_edge={'Y' if has_horizontal else 'N'}")
             return True
 
