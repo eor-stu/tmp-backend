@@ -299,8 +299,8 @@ class _Robot:
     # 实测：FORWARD_SPEED=30，跑 3s，走 0.645m → 0.645 / 3 = 0.215 m/s
     # 实测：ROTATE_SPEED=30，跑 10s，转 960°  → 960 / 10 = 96.0 deg/s
     # ------------------------------------------------------------------
-    V_FORWARD: Final[float] = 0.215  # 单位：m/s
-    V_ROTATE:  Final[float] = 96.0   # 单位：deg/s
+    V_FORWARD: Final[float] = 0.186  # m/s, calibrated 2026-05-24 (was 0.215)
+    V_ROTATE:  Final[float] = 75.8   # deg/s, calibrated 2026-05-24 (was 96.0)
 
     _instance: "_Robot | None" = None
 
