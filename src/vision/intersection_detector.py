@@ -2,15 +2,13 @@
 vision/intersection_detector.py
 Detects intersections (crossroads) in camera frames.
 
-Uses two complementary signals (OR logic):
-1. Area spike vs fixed baseline — area exceeds a locked straight-line reference
-2. Horizontal edge detection — Sobel X finds strong cross-lines
+Uses two complementary signals with weighted voting:
+1. Area spike vs fixed baseline — strong signal (2 votes)
+2. Horizontal edge detection — weak signal (1 vote)
 
-The baseline is computed from the first frames (assumed to be on a straight line)
-and locked, avoiding the rolling-average problem where gradual area increases
-are never detected as spikes.
-
-Signal-level hold prevents single-frame flicker from breaking the debounce.
+Need 3 votes to trigger, and the accumulation window must include at least
+one area spike. This prevents false positives from horizontal-edge noise
+on straight lines while reliably triggering at real junctions.
 """
 
 import cv2
@@ -23,24 +21,26 @@ from src.logger import debug, info
 AREA_SPIKE_RATIO = 1.5          # Area must exceed fixed baseline by this factor
 HORIZONTAL_LINE_THRESHOLD = 0.3  # Ratio of horizontal edge pixels to frame width
 SOBEL_THRESHOLD = 50             # Fixed threshold for Sobel edges (tuned for normalized binary)
-CONFIRM_FRAMES = 3               # Confirmation frames needed (with slow decay)
+VOTE_THRESHOLD = 3               # Votes needed to trigger
 BASELINE_WINDOW = 10             # Frames to collect for fixed baseline
-HOLD_FRAMES = 4                  # Hold horizontal signal True for N frames after last detection
+HOLD_FRAMES = 2                  # Hold horizontal signal True for N frames after last detection
 
 
 class IntersectionDetector:
-    """Detects intersections via area spike (fixed baseline) OR horizontal lines."""
+    """Detects intersections via weighted voting: area spike (2) + horizontal (1)."""
 
     def __init__(self):
         self._baseline_samples: list[float] = []
         self._baseline_area: float | None = None
-        self._confirm_count: int = 0
+        self._votes: int = 0
+        self._had_area_spike: bool = False
         self._h_hold: int = 0
         self._is_at_intersection: bool = False
 
     def reset(self) -> None:
         """Reset detector state (baseline is preserved)."""
-        self._confirm_count = 0
+        self._votes = 0
+        self._had_area_spike = False
         self._h_hold = 0
         self._is_at_intersection = False
 
@@ -74,9 +74,9 @@ class IntersectionDetector:
         """
         Detect if car is at an intersection.
 
-        Uses OR logic with a fixed baseline (not rolling average):
-        area spike vs locked straight-line reference, or horizontal edges.
-        Signal-level hold prevents single-frame flicker from resetting debounce.
+        Weighted voting: area_spike = 2 votes, horizontal_edge = 1 vote.
+        Must accumulate VOTE_THRESHOLD votes including at least one area spike.
+        Slow decay on no-signal frames (-1 vote) prevents flicker from resetting.
 
         Args:
             binary: Preprocessed binary image (from LineDetector._to_binary)
@@ -96,10 +96,10 @@ class IntersectionDetector:
                 info(f"[Vision] Intersection baseline locked: {self._baseline_area:.0f}")
             return False
 
-        # Signal 1: area spike vs fixed baseline
+        # Signal 1: area spike vs fixed baseline (strong)
         area_spike = area > self._baseline_area * AREA_SPIKE_RATIO and self._baseline_area > 100
 
-        # Signal 2: horizontal cross-lines (with hold to bridge flicker)
+        # Signal 2: horizontal cross-lines (weak, with hold to bridge flicker)
         h_detected = self._detect_horizontal_lines(binary)
         if h_detected:
             self._h_hold = HOLD_FRAMES
@@ -110,16 +110,21 @@ class IntersectionDetector:
         else:
             has_horizontal = False
 
-        is_signal = area_spike or has_horizontal
-
-        if is_signal:
-            self._confirm_count += 1
+        # Weighted voting
+        if area_spike:
+            self._votes += 2
+            self._had_area_spike = True
+        elif has_horizontal:
+            self._votes += 1
         else:
-            self._confirm_count = max(0, self._confirm_count - 1)
-            if self._confirm_count == 0:
+            self._votes = max(0, self._votes - 1)
+            if self._votes == 0:
+                self._had_area_spike = False
                 self._is_at_intersection = False
 
-        if self._confirm_count >= CONFIRM_FRAMES and not self._is_at_intersection:
+        if (self._votes >= VOTE_THRESHOLD
+                and self._had_area_spike
+                and not self._is_at_intersection):
             self._is_at_intersection = True
             info(f"[Vision] Intersection detected! area={area:.0f} baseline={self._baseline_area:.0f} "
                  f"spike={'Y' if area_spike else 'N'} h_edge={'Y' if h_detected else 'N'}")
