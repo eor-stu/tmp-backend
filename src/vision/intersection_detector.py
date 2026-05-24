@@ -9,6 +9,8 @@ Uses two complementary signals (OR logic):
 The baseline is computed from the first frames (assumed to be on a straight line)
 and locked, avoiding the rolling-average problem where gradual area increases
 are never detected as spikes.
+
+Signal-level hold prevents single-frame flicker from breaking the debounce.
 """
 
 import cv2
@@ -21,8 +23,9 @@ from src.logger import debug, info
 AREA_SPIKE_RATIO = 1.5          # Area must exceed fixed baseline by this factor
 HORIZONTAL_LINE_THRESHOLD = 0.3  # Ratio of horizontal edge pixels to frame width
 SOBEL_THRESHOLD = 50             # Fixed threshold for Sobel edges (tuned for normalized binary)
-CONFIRM_FRAMES = 3               # Consecutive signal frames to confirm
+CONFIRM_FRAMES = 3               # Confirmation frames needed (with slow decay)
 BASELINE_WINDOW = 10             # Frames to collect for fixed baseline
+HOLD_FRAMES = 4                  # Hold horizontal signal True for N frames after last detection
 
 
 class IntersectionDetector:
@@ -32,11 +35,13 @@ class IntersectionDetector:
         self._baseline_samples: list[float] = []
         self._baseline_area: float | None = None
         self._confirm_count: int = 0
+        self._h_hold: int = 0
         self._is_at_intersection: bool = False
 
     def reset(self) -> None:
         """Reset detector state (baseline is preserved)."""
         self._confirm_count = 0
+        self._h_hold = 0
         self._is_at_intersection = False
 
     def _compute_line_area(self, binary: np.ndarray) -> float:
@@ -71,6 +76,7 @@ class IntersectionDetector:
 
         Uses OR logic with a fixed baseline (not rolling average):
         area spike vs locked straight-line reference, or horizontal edges.
+        Signal-level hold prevents single-frame flicker from resetting debounce.
 
         Args:
             binary: Preprocessed binary image (from LineDetector._to_binary)
@@ -93,21 +99,30 @@ class IntersectionDetector:
         # Signal 1: area spike vs fixed baseline
         area_spike = area > self._baseline_area * AREA_SPIKE_RATIO and self._baseline_area > 100
 
-        # Signal 2: horizontal cross-lines
-        has_horizontal = self._detect_horizontal_lines(binary)
+        # Signal 2: horizontal cross-lines (with hold to bridge flicker)
+        h_detected = self._detect_horizontal_lines(binary)
+        if h_detected:
+            self._h_hold = HOLD_FRAMES
+            has_horizontal = True
+        elif self._h_hold > 0:
+            self._h_hold -= 1
+            has_horizontal = True
+        else:
+            has_horizontal = False
 
         is_signal = area_spike or has_horizontal
 
         if is_signal:
             self._confirm_count += 1
         else:
-            self._confirm_count = 0
-            self._is_at_intersection = False
+            self._confirm_count = max(0, self._confirm_count - 1)
+            if self._confirm_count == 0:
+                self._is_at_intersection = False
 
         if self._confirm_count >= CONFIRM_FRAMES and not self._is_at_intersection:
             self._is_at_intersection = True
             info(f"[Vision] Intersection detected! area={area:.0f} baseline={self._baseline_area:.0f} "
-                 f"spike={'Y' if area_spike else 'N'} h_edge={'Y' if has_horizontal else 'N'}")
+                 f"spike={'Y' if area_spike else 'N'} h_edge={'Y' if h_detected else 'N'}")
             return True
 
         return False
