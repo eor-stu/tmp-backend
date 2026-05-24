@@ -15,7 +15,7 @@ from src.logger import debug, info
 
 
 # Detection parameters
-AREA_THRESHOLD_RATIO = 0.3    # Total contour area must exceed 30% of ROI
+AREA_THRESHOLD_RATIO = 0.20   # Total contour area must exceed 20% of ROI (calibrated 2026-05-24)
 ASPECT_VERTICAL = 2.0          # h/w > 2 → vertical line segment
 ASPECT_HORIZONTAL = 2.0        # w/h > 2 → horizontal line segment
 CONFIRM_FRAMES = 3              # Consecutive frames needed to confirm intersection
