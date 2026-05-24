@@ -3,8 +3,9 @@ vision/line_detector.py
 Black line detection using OpenCV.
 
 Captures frames from USB camera, applies ROI cropping, grayscale conversion,
-Gaussian blur, adaptive thresholding, and contour detection to find the
-black line center position.
+Gaussian blur, and column-wise darkest-percentile analysis to find the
+black line center position. Includes normalize+adaptiveThreshold for
+low-contrast binary output used by intersection detection.
 """
 
 import cv2
@@ -16,12 +17,12 @@ from src.logger import debug, error
 
 # Detection parameters (tunable on real hardware)
 DEFAULT_RESOLUTION = (320, 240)
-ROI_START_RATIO = 0.4      # ROI starts at 40% from top → bottom 60% for line following
+ROI_TOP_RATIO = 0.5        # ROI starts at 50% from top (only look at ground ahead)
 UPPER_RATIO = 0.4           # Upper 40% for endpoint detection
 GAUSSIAN_KERNEL = (5, 5)
 ADAPTIVE_BLOCK_SIZE = 11
 ADAPTIVE_C = 2
-MIN_CONTOUR_AREA = 100      # Minimum contour area to be considered a line
+MIN_CONTOUR_AREA = 100      # Minimum contour area for endpoint detection
 
 
 class LineDetector:
@@ -63,59 +64,71 @@ class LineDetector:
         return frame
 
     def _crop_roi(self, frame: np.ndarray) -> np.ndarray:
-        """Crop frame to bottom 60% (ground area ahead of car)."""
+        """Crop frame to bottom ROI (ground area ahead of car)."""
         h = frame.shape[0]
-        top = int(h * ROI_START_RATIO)
+        top = int(h * ROI_TOP_RATIO)
         return frame[top:h, :]
 
     def _crop_upper(self, frame: np.ndarray) -> np.ndarray:
-        """Crop frame to upper 40% for endpoint detection."""
+        """Crop frame to upper portion for endpoint detection."""
         h = frame.shape[0]
         bottom = int(h * UPPER_RATIO)
         return frame[0:bottom, :]
 
     def _preprocess(self, roi: np.ndarray) -> np.ndarray:
-        """Convert to grayscale, blur, and apply adaptive threshold."""
+        """Convert to grayscale and blur. Returns raw grayscale (no threshold)."""
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, GAUSSIAN_KERNEL, 0)
-        # Black line = low pixel values → invert so line becomes white
-        binary = cv2.adaptiveThreshold(
-            blurred, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            ADAPTIVE_BLOCK_SIZE,
-            ADAPTIVE_C,
-        )
-        return binary
+        return blurred
 
-    def _find_line_center(self, binary: np.ndarray) -> tuple[float, bool]:
+    def _to_binary(self, gray: np.ndarray) -> np.ndarray:
+        """Convert grayscale to binary via adaptive threshold.
+
+        Normalizes grayscale to full 0-255 range first so that
+        adaptive threshold works even in low-contrast scenes.
         """
-        Find the black line center in binary image.
+        gray_norm = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+        return cv2.adaptiveThreshold(
+            gray_norm, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, ADAPTIVE_BLOCK_SIZE, ADAPTIVE_C,
+        )
+
+    def _find_line_center(self, gray: np.ndarray) -> tuple[Optional[float], bool]:
+        """
+        Find black line center via per-column darkest-percentile analysis.
+
+        Computes the 5th-percentile value for each column, then isolates
+        columns whose value is within 15% of the global minimum. Only those
+        columns contribute to the weighted center of mass. This is
+        self-calibrating: it works regardless of overall scene brightness.
 
         Returns:
             (deviation, detected)
             deviation: -1.0 (left) to +1.0 (right), 0.0 = centered
             detected: True if line found
         """
-        contours, _ = cv2.findContours(
-            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        h, w = gray.shape
 
-        if not contours:
+        # Per-column: 5th percentile (robust to speckle noise)
+        n_dark = max(1, int(h * 0.05))
+        col_sorted = np.sort(gray, axis=0)
+        col_dark = np.mean(col_sorted[:n_dark], axis=0).astype(np.float32)
+
+        # Invert: dark → high weight
+        col_weights = 255.0 - col_dark
+
+        # Only keep columns within 15% of global minimum darkness
+        global_min = np.min(col_dark)
+        col_weights[col_dark > global_min * 1.15] = 0
+
+        total = np.sum(col_weights)
+        if total < 1e-6:
             return 0.0, False
 
-        # Find largest contour (assumed to be the line)
-        largest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest) < MIN_CONTOUR_AREA:
-            return 0.0, False
+        x_indices = np.arange(w)
+        center_x = np.sum(x_indices * col_weights) / total
 
-        # Get bounding rect center
-        x, y, w, h = cv2.boundingRect(largest)
-        center_x = x + w / 2
-
-        # Normalize to -1.0 ~ +1.0
-        frame_w = binary.shape[1]
-        deviation = (center_x / frame_w) * 2.0 - 1.0
+        deviation = (center_x / w) * 2.0 - 1.0
 
         debug(f"[Vision] Line center: {center_x:.1f}, deviation: {deviation:.3f}")
         return deviation, True
@@ -139,14 +152,15 @@ class LineDetector:
             return 0.0, False, None
 
         roi = self._crop_roi(frame)
-        binary = self._preprocess(roi)
-        deviation, detected = self._find_line_center(binary)
+        gray = self._preprocess(roi)
+        deviation, detected = self._find_line_center(gray)
+        binary = self._to_binary(gray)
 
         return deviation, detected, binary
 
     def detect_upper(self, frame: Optional[np.ndarray] = None) -> bool:
         """
-        Check if black line exists in the upper 40% of frame (endpoint detection).
+        Check if black line exists in the upper portion of frame (endpoint detection).
 
         Args:
             frame: Camera frame. If None, reads from camera.
@@ -160,7 +174,8 @@ class LineDetector:
             return False
 
         upper = self._crop_upper(frame)
-        binary = self._preprocess(upper)
+        gray = self._preprocess(upper)
+        binary = self._to_binary(gray)
         contours, _ = cv2.findContours(
             binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
