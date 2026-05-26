@@ -90,6 +90,9 @@ class Navigator:
         self._upper_loss_count: int = 0
         self._pending_turn_angle: float = 0.0
 
+        # Final approach: follow line until endpoint (no intersection counting)
+        self._final_approach: bool = False
+
         # Mock mode flags
         self._camera_mock: bool = False
         self._car_mock: bool = not Robot.is_available
@@ -128,6 +131,17 @@ class Navigator:
 
         return self._intersections_target > 0
 
+    def _enter_final_approach(self) -> None:
+        """Enter final approach mode: follow line until endpoint detection triggers DONE."""
+        self._final_approach = True
+        self._intersections_target = 0
+        self._intersections_passed = 0
+        self._intersection_detector.reset()
+        self._pid.reset()
+        self._tick_count = 0
+        self._state = NavState.FOLLOW_LINE
+        info("[Navigator] 进入最终接近模式, 依靠终点检测判定到达")
+
     # ------------------------------------------------------------------
     # Motor control (mock-aware)
     # ------------------------------------------------------------------
@@ -163,8 +177,10 @@ class Navigator:
         Main navigation loop. Blocks until all commands are executed or stopped.
 
         Executes get_commands() sequence:
+            turn 180 → 初始转身面向道路
             forward N → 巡线经过 N 个路口
             turn ±90 → 路口固定转向
+            arrive → 最终接近，依靠终点检测判定到达
         """
         if not self._commands:
             warning("[Navigator] No commands set")
@@ -175,13 +191,23 @@ class Navigator:
             self._camera_mock = True
             self._car_mock = True
 
-        if not self._prepare_next_forward():
-            warning("[Navigator] No forward commands at start")
-            if not self._camera_mock:
-                self._line_detector.close()
-            return
+        # Handle initial turn (180° to face the road) if present
+        if self._commands[0]["action"] == "turn":
+            self._pending_turn_angle = float(self._commands[0]["param"])
+            self._cmd_idx = 1
+            self._state = NavState.TURNING
+        elif not self._prepare_next_forward():
+            if self._cmd_idx < len(self._commands) and self._commands[self._cmd_idx]["action"] == "arrive":
+                self._cmd_idx += 1
+                self._enter_final_approach()
+            else:
+                warning("[Navigator] No forward commands at start")
+                if not self._camera_mock:
+                    self._line_detector.close()
+                return
+        else:
+            self._state = NavState.FOLLOW_LINE
 
-        self._state = NavState.FOLLOW_LINE
         self._pid.reset()
         self._intersection_detector.reset()
         self._last_intersection_time = 0.0
@@ -230,12 +256,21 @@ class Navigator:
             self._tick_follow_line_real()
 
     def _tick_follow_line_mock(self) -> None:
-        """Mock line following: simulate intersection every MOCK_INTERSECTION_TICKS ticks."""
+        """Mock line following: simulate intersection every MOCK_INTERSECTION_TICKS ticks.
+        In final approach mode, simulate endpoint detection after a fixed duration."""
         deviation = 0.0
         left_speed, right_speed = self._pid.compute(deviation, line_detected=True)
         self._set_differential_speed(left_speed, right_speed)
 
-        if self._tick_count >= MOCK_INTERSECTION_TICKS:
+        if self._final_approach:
+            # Simulate: follow line for a while, then trigger endpoint
+            if self._tick_count >= MOCK_INTERSECTION_TICKS * 2:
+                car_stop()
+                self._state = NavState.DONE
+                elapsed = time.time() - self._start_time
+                info(f"[Navigator] [Mock] >>> 模拟终点检测! 总耗时: {elapsed:.1f}s")
+                return
+        elif self._tick_count >= MOCK_INTERSECTION_TICKS:
             car_stop()
             self._state = NavState.CROSSING
             self._intersections_passed += 1
@@ -279,23 +314,24 @@ class Navigator:
         else:
             self._upper_loss_count = 0
 
-        # Intersection detection (with cooldown)
-        now = time.time()
-        if now - self._last_intersection_time > INTERSECTION_COOLDOWN:
-            at_intersection = self._intersection_detector.detect(
-                binary, deviation, detected
-            )
-            if at_intersection:
-                car_stop()
-                self._state = NavState.CROSSING
-                self._intersections_passed += 1
-                elapsed = now - self._start_time
-                info(f"[Navigator] >>> 检测到路口! "
-                     f"路口进度: {self._intersections_passed}/{self._intersections_target}, "
-                     f"指令进度: {self._cmd_idx}/{len(self._commands)}, "
-                     f"已运行: {elapsed:.1f}s")
-                self._tick_count = 0
-                return
+        # Intersection detection (with cooldown) — skipped in final approach
+        if not self._final_approach:
+            now = time.time()
+            if now - self._last_intersection_time > INTERSECTION_COOLDOWN:
+                at_intersection = self._intersection_detector.detect(
+                    binary, deviation, detected
+                )
+                if at_intersection:
+                    car_stop()
+                    self._state = NavState.CROSSING
+                    self._intersections_passed += 1
+                    elapsed = now - self._start_time
+                    info(f"[Navigator] >>> 检测到路口! "
+                         f"路口进度: {self._intersections_passed}/{self._intersections_target}, "
+                         f"指令进度: {self._cmd_idx}/{len(self._commands)}, "
+                         f"已运行: {elapsed:.1f}s")
+                    self._tick_count = 0
+                    return
 
         # PID line following
         left_speed, right_speed = self._pid.compute(deviation, detected)
@@ -339,10 +375,14 @@ class Navigator:
         turn_angle = self._get_next_turn()
 
         if turn_angle is None:
-            self._state = NavState.DONE
-            elapsed = time.time() - self._start_time
-            info(f"[Navigator] ===== 导航完成 =====")
-            info(f"[Navigator] 总帧数: {self._frame_count}, 总耗时: {elapsed:.1f}s")
+            if self._cmd_idx < len(self._commands) and self._commands[self._cmd_idx]["action"] == "arrive":
+                self._cmd_idx += 1
+                self._enter_final_approach()
+            else:
+                self._state = NavState.DONE
+                elapsed = time.time() - self._start_time
+                info(f"[Navigator] ===== 导航完成 =====")
+                info(f"[Navigator] 总帧数: {self._frame_count}, 总耗时: {elapsed:.1f}s")
             return
 
         self._pending_turn_angle = turn_angle
@@ -363,6 +403,9 @@ class Navigator:
                 return cmd["param"]
             elif cmd["action"] == "forward":
                 self._prepare_next_forward()
+                return None
+            elif cmd["action"] == "arrive":
+                # Not a turn — caller should check for arrive and enter final approach
                 return None
         return None
 
@@ -397,6 +440,10 @@ class Navigator:
         if has_next:
             self._state = NavState.FOLLOW_LINE
             info(f"[Navigator] [转向] 完成, 下一段: {self._intersections_target} 个路口")
+        elif self._cmd_idx < len(self._commands) and self._commands[self._cmd_idx]["action"] == "arrive":
+            self._cmd_idx += 1
+            self._enter_final_approach()
+            info(f"[Navigator] [转向] 完成, 进入最终接近")
         else:
             self._state = NavState.DONE
             elapsed = time.time() - self._start_time
