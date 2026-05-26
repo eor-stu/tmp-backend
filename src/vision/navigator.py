@@ -321,6 +321,9 @@ class Navigator:
         if self._car_mock:
             time.sleep(MOCK_PHASE_SLEEP)
 
+        info(f"[Navigator] [过路口] 暂停 2s")
+        time.sleep(2.0)
+
         self._last_intersection_time = time.time()
 
         # Check if more intersections to pass in this segment
@@ -379,6 +382,9 @@ class Navigator:
         turn(angle)
         if self._car_mock:
             time.sleep(MOCK_PHASE_SLEEP)
+
+        info(f"[Navigator] [转向] 暂停 2s")
+        time.sleep(2.0)
 
         self._last_intersection_time = time.time()
 
