@@ -128,7 +128,6 @@ def patch_route(
             destination_clinic_id=destination_clinic_id,
             requirement_summary=requirement_summary,
             current_route=origin_route,
-            config=dict(max_tokens=256),
         )
 
         # 提取 patches

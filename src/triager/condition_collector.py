@@ -84,7 +84,6 @@ def collect_condition(description_from_user: str, previous_conclusions: list[str
         resp = collector(
             description_from_user = description_from_user,
             previous_conclusions = previous_conclusions_str,
-            config=dict(max_tokens=128),
         )
 
         duration = _normalize_condition_value(getattr(resp, "duration", None))

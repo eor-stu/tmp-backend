@@ -72,7 +72,6 @@ def select_clinic(
             severity=severity,
             description=description,
             other_relevant_info=other_relevant_info,
-            config=dict(max_tokens=32),
         )
 
         clinic_selection = resp["clinic_selection"] if isinstance(resp, dict) else getattr(resp, "clinic_selection", DEFAULT_CLINIC_ID)

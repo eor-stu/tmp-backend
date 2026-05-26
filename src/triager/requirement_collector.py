@@ -71,7 +71,6 @@ def collect_requirement(requirement_from_user: str) -> list[dict[str, str]]:
     try:
         result = collector(
             requirement_from_user=requirement_from_user,
-            config=dict(max_tokens=256),
         )
 
         requirements = _normalize_requirements_value(getattr(result, "requirements", DEFAULT_REQUIREMENTS))
