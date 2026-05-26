@@ -35,7 +35,7 @@ TURN_SPEED: Final[int] = 30                      # motor speed for turning (0-10
 LOG_INTERVAL: Final[int] = 30                    # log every N frames during line following
 
 # Intersection handling
-FORWARD_DISTANCE: Final[float] = 0.1             # meters to push through intersection
+FORWARD_DISTANCE: Final[float] = 0.15            # meters to push through intersection (was 0.1)
 INTERSECTION_COOLDOWN: Final[float] = 2.0        # seconds to ignore after handling intersection
 
 # Endpoint detection
