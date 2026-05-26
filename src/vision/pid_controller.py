@@ -12,8 +12,8 @@ from src.logger import debug
 
 
 # Default PID gains (tune on real hardware)
-DEFAULT_KP: Final[float] = 40.0   # was 30, increased for faster correction
-DEFAULT_KI: Final[float] = 2.0    # was 1.0, increased for faster bias elimination
+DEFAULT_KP: Final[float] = 30.0
+DEFAULT_KI: Final[float] = 1.0
 DEFAULT_KD: Final[float] = 10.0
 
 # Speed limits (0-100, matching LOBOROBOT duty cycle)
