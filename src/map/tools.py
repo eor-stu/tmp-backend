@@ -102,9 +102,9 @@ def _get_relative_turn(current_dir: AbsoluteDir, target_dir: AbsoluteDir) -> int
     elif diff == 180:
         return 180
     elif diff == 90:
-        return 90
+        return -90   # counter-clockwise = left turn
     elif diff == 270:
-        return -90
+        return 90    # clockwise = right turn
     return 0
 
 
@@ -125,28 +125,28 @@ def _merge_consecutive_straights(actions: list[tuple[str, float]]) -> list[tuple
 
 def _is_intersection(node_id: str, node_dict: dict) -> bool:
     """
-    Determine if a road node is a true intersection.
+    Determine if a road node is a functional intersection.
 
     A node is considered an intersection when ALL of the following are true:
     1. The node itself is of type "nav" (a road node)
     2. All 4 orthogonally adjacent cells (up/down/left/right at distance 1)
-       also contain "nav"-type nodes
+       contain a node of ANY type (nav or main)
 
-    This definition ensures the car only counts road junctions where
-    horizontal and vertical lines genuinely cross, and does NOT count:
-    - Dead-end road nodes (missing neighbors)
-    - Edge road nodes (one side has no road)
-    - Start/end "main"-type nodes like entrances or clinics
+    This captures both pure crossroads (4 nav neighbors) and corridor
+    junctions where one direction leads to a main location (e.g. exit).
     """
     node = node_dict.get(node_id)
     if node is None or node.type != "nav":
         return False
 
+    # Build coordinate → node lookup from all nodes
+    coord_to_node = {}
+    for n in node_dict.values():
+        coord_to_node[(int(n.x), int(n.y))] = n
+
     x, y = int(node.x), int(node.y)
     for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-        neighbor_id = f"road_{x + dx}_{y + dy}"
-        neighbor = node_dict.get(neighbor_id)
-        if neighbor is None or neighbor.type != "nav":
+        if (x + dx, y + dy) not in coord_to_node:
             return False
 
     return True
@@ -156,29 +156,29 @@ def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
     """
     Convert a path between two map nodes into car control commands.
 
-    The car navigates by following a black line on the ground. Commands are
-    expressed in terms of INTERSECTIONS (junction points where lines cross),
-    not raw grid coordinates.
+    The car starts parked at a main-type node, facing the main node itself
+    (i.e. facing away from the adjacent road). Each command is executed
+    sequentially: the car follows the black line, counts intersections,
+    and executes explicit turns at intersections where the path changes
+    direction. Direction changes at non-intersection nodes are handled
+    naturally by the line detector (the line curves and the car follows).
 
     An intersection is a road node whose 4 orthogonally adjacent cells are
-    all also roads. The car passes through intersections by following the
-    line; the only deliberate turn happens at the LAST direction change
-    on the path (where the car must choose a different direction to reach
-    the destination).
+    all also roads. At an intersection, the car goes straight unless told
+    to turn.
 
     Example: entrance → pharmacy
-        Path: entrance → (grid nodes southbound) → road_2_5 → pharmacy
-        All intersections on path: road_2_7 (#1), road_2_5 (#2)
-        Last direction change: at road_2_5 (south → west)
-        #1 is passed through, #2 is the turning point
-        Commands: [forward(1), turn(-90)]
+        Path: entrance → (northbound) → road_2_5 → pharmacy
+        Intersections: road_2_7 (#1), road_2_5 (#2)
+        Direction change: at road_2_5 (north → west, a left turn)
+        Commands: [turn(180), forward(2), turn(-90), arrive]
 
     Example: internal_clinic → toilet
         Path: IC → east to road_2_3 → south to road_2_7 → east to toilet
-        All intersections on path: road_2_3 (#1), road_2_5 (#2), road_2_7 (#3)
-        Last direction change: at road_2_7 (south → east)
-        #1 and #2 are passed through, #3 is the turning point
-        Commands: [forward(2), turn(90)]
+        Intersections: road_2_3 (#1), road_2_5 (#2), road_2_7 (#3)
+        Direction changes: at road_2_3 (east → south, right turn),
+                           at road_2_7 (south → east, left turn)
+        Commands: [turn(180), forward(1), turn(90), forward(2), turn(-90), arrive]
 
     Args:
         start: Starting node ID (e.g. "entrance", "internal_clinic")
@@ -186,7 +186,9 @@ def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
 
     Returns:
         List of {action, param} dicts, e.g.:
-            [{"action": "forward", "param": 2.0}, {"action": "turn", "param": 90}]
+            [{"action": "turn", "param": 180.0},
+             {"action": "forward", "param": 1.0},
+             {"action": "turn", "param": 90.0}, ...]
     """
     map_data = get_map()
     path = map_data.dijkstra(start, end)
@@ -196,7 +198,6 @@ def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
     node_dict: dict[str, object] = {n.id: n for n in map_data.nodes}
 
     # ── Phase 1: Identify all intersections and direction changes on the path ──
-    # We need to know: which nodes are intersections, and where the path turns.
     isect_indices: list[int] = []         # path indices of intersection nodes
     turns: list[tuple[int, float]] = []    # (path_index, turn_angle) for each turn
 
@@ -226,32 +227,46 @@ def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
             continue
 
         turn_angle = _get_relative_turn(current_dir, target_dir)
-        if turn_angle != 0:
+        if turn_angle != 0 and _is_intersection(current_id, node_dict):
             turns.append((i, turn_angle))
         current_dir = target_dir
 
-    # ── Phase 2: Partition intersections around the LAST turn ──
-    # All intersections before the last turn are "passed through";
-    # the intersection at the last turn is the turning point (NOT counted
-    # in the forward parameter — the car stops and turns at it).
-    # Intersections after the last turn (if any) go to the final forward.
+    # ── Phase 2: Build actions from ALL turns ──
+    # The car is parked at the start location, facing away from the road.
+    # First action: turn 180° to face the road.
     #
-    # If there are no turns, all intersections are passed through.
+    # Then for each direction change, emit:
+    #   forward(N) → turn(angle)
+    # where N counts intersections since the last action point up to
+    # and including the turn's own intersection.
+    #
+    # No turns → all intersections go into one forward segment.
+    actions: list[tuple[str, float]] = []
+    actions.append(("turn", 180.0))
+
     if turns:
-        turn_idx, turn_angle = turns[-1]
+        last_mark = 0  # path index of last turn (0 = start location)
 
-        passed = sum(1 for idx in isect_indices if idx < turn_idx)
-        after = sum(1 for idx in isect_indices if idx > turn_idx)
+        for turn_idx, turn_angle in turns:
+            n = sum(1 for idx in isect_indices if last_mark < idx <= turn_idx)
+            if n > 0:
+                actions.append(("forward", float(n)))
+            actions.append(("turn", float(turn_angle)))
+            last_mark = turn_idx
 
-        actions: list[tuple[str, float]] = []
-        if passed > 0:
-            actions.append(("forward", float(passed)))
-        actions.append(("turn", float(turn_angle)))
-        if after > 0:
-            actions.append(("forward", float(after)))
+        # Remaining intersections after the last turn
+        remaining = sum(1 for idx in isect_indices if idx > last_mark)
+        if remaining > 0:
+            actions.append(("forward", float(remaining)))
     else:
         total = len(isect_indices)
-        actions = [("forward", float(total))] if total > 0 else []
+        if total > 0:
+            actions.append(("forward", float(total)))
+
+    # ── Phase 3: Final approach to destination ──
+    # After the last turn (or last forward if no turns), the car follows
+    # the line until endpoint detection triggers DONE at the main location.
+    actions.append(("arrive", 0.0))
 
     # ── Cleanup ──
     actions = [(a, p) for a, p in actions if not (a == "forward" and p == 0)]
