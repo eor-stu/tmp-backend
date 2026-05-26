@@ -3,7 +3,7 @@ name: 文档索引
 category: infra-rule
 field: global
 description: 快速索引 docs/ 中的各类规则文档
-date: 2026-05-23
+date: 2026-05-26
 ---
 
 # 文档索引
@@ -76,6 +76,8 @@ date: 2026-05-23
 | [changelog/011_map_runtime_graph.md](./changelog/011_map_runtime_graph.md) | `adr` | Map 模块运行时图构建重构，消除 car/map 循环依赖 |
 | [changelog/012_vision_navigation.md](./changelog/012_vision_navigation.md) | `adr` | Vision 视觉巡线导航系统设计：PID + 路口检测 + 状态机 + Mock 双模式 |
 | [changelog/013_calibration_workflow.md](./changelog/013_calibration_workflow.md) | `adr` | Vision 标定工作流设计：三脚本 + Claude Code 数据分析闭环 |
+| [changelog/014_get_commands_rewrite.md](./changelog/014_get_commands_rewrite.md) | `adr` | get_commands() 按路口定义重写，不再把每个 road 节点当路口 |
+| [changelog/015_navigator_final_approach.md](./changelog/015_navigator_final_approach.md) | `adr` | Navigator 新增 final_approach 模式，路口过完后依靠终点检测判定到达 |
 
 ---
 
@@ -98,6 +100,20 @@ date: 2026-05-23
 | [archive/troubleshooting/common-errors.md](./archive/troubleshooting/common-errors.md) | 常见错误排查指南 |
 | [archive/troubleshooting/model-loading.md](./archive/troubleshooting/model-loading.md) | 模型加载问题排查 |
 | [archive/troubleshooting/test-debugging.md](./archive/troubleshooting/test-debugging.md) | 测试调试指南 |
+
+### 4.4 测试脚本
+
+| 文件 | 用途 |
+|------|------|
+| [test_all_routes.py](../../test/test_all_routes.py) | 枚举所有主要地点间路线指令 |
+| [test_full_path.py](../../test/test_full_path.py) | 端到端全路径导航测试 |
+| [test_single_intersection.py](../../test/test_single_intersection.py) | 单路口导航测试 |
+
+### 4.5 开发者文档
+
+| 文件 | 用途 |
+|------|------|
+| [NODE_CREATE.md](../../src/NODE_CREATE.md) | Condition Collector 模块创建流程（402 行） |
 
 ### 4.3 Whisper
 

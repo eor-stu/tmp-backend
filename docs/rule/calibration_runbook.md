@@ -3,7 +3,7 @@ name: Vision 巡线导航标定操作手册
 category: guide
 field: code
 description: 从设计到现实的 7 步标定流程，包含脚本用法、参数对照、数据分析和常见问题
-date: 2026-05-23
+date: 2026-05-26
 ---
 
 # Vision 巡线导航标定操作手册
@@ -81,6 +81,13 @@ python -m test.test_vision_scene --tag near_junction --display
 1. 手动将车推到位置 A，运行脚本，观察 5-10 秒
 2. 将车推到位置 B，运行脚本，观察 5-10 秒
 3. 查看是否有横线轮廓出现（`horizontal` 字段 > 0）
+
+**路口检测原理**: 使用双信号加权投票机制（`intersection_detector.py`）：
+- 信号1（强，2票）：轮廓面积相对于固定基线的尖峰检测
+- 信号2（弱，1票）：Sobel 水平边缘检测 + 保持帧防闪烁
+- 需要累积 3 票且包含至少一次面积尖峰才触发
+
+线检测使用按列最暗百分位分析（`line_detector.py`）找出黑线中心，配合自适应阈值二值化。
 
 **产出**:
 - `data/vision_calib/line_scene/on_line.jsonl`
@@ -164,28 +171,30 @@ python -m test.test_vision_pid --tag pid_straight --display
 
 **操作**:
 ```bash
-# 在 Navigator 中设置单段路径
-# 修改代码临时调用: nav.set_commands([{"action":"forward","param":1},{"action":"turn","param":90}])
+# 方式一: 直接用 test 脚本测试单个路口
+python -m test.test_single_intersection
+# 方式二: 启动后端通过 API 测试
 python -m src.main
-# 然后通过 API 启动导航
 curl -X POST http://localhost:8000/vision/start_navigate \
   -H "Content-Type: application/json" \
   -d '{"start":"entrance","destination":"pharmacy"}'
 ```
+Navigator 内部使用 `[{action: "forward"|"turn", param: float}]` 命令格式，
+如 `set_commands([{"action":"turn","param":180},{"action":"forward","param":2},{"action":"turn","param":-90}])`。
 
 1. 设置一个 T 字或十字路口
 2. 观察路口检测在何时触发（应离路口足够近）
-3. 确认 `forward(0.1)` 推进后车身位置
+3. 确认 `forward(0.15)` 推进后车身位置
 4. 确认 `turn(90)` 后车身方向
 
 **判断标准**:
 - 路口检测不早不晚（不在远处误触发，不走过头才触发）
-- `forward(0.1)` 推进后车身在路口中心附近
+- `forward(0.15)` 推进后车身在路口中心附近
 - 转向后能重新看到下一段黑线
 
 **将数据交给 Claude Code**: 描述每个环节的表现：
 - 路口触发时车离路口还有多远？
-- 推进 0.1m 够不够到路口中心？
+- 推进 0.15m 够不够到路口中心？
 - 转向 90° 后角度准确吗？
 
 Claude Code 据此调整 `FORWARD_DISTANCE`（`src/vision/navigator.py`）或底盘标定值。
@@ -196,7 +205,15 @@ Claude Code 据此调整 `FORWARD_DISTANCE`（`src/vision/navigator.py`）或底
 
 **目的**: 跑完整真实路径，验证终点检测和整体稳定性。
 
-**操作**: 启动后端服务器，通过 API 发起完整导航。
+**操作**:
+```bash
+# 枚举所有路线指令
+python -m test.test_all_routes
+# 端到端导航测试
+python -m test.test_full_path
+# 或通过 API 发起完整导航
+python -m src.main
+```
 
 **判断标准**:
 - 每个路口正确触发，无漏检无误检
@@ -219,6 +236,10 @@ python -m test.test_chassis_calib
 3. 将实际值告知 Claude Code
 
 **产出**: `data/vision_calib/chassis/` 下的日志
+
+**当前标定值** (`src/car/LOBOROBOT.py`):
+- `V_FORWARD`: 0.186 m/s (2026-05-24 标定，原 0.215)
+- `V_ROTATE`: 75.8 deg/s (2026-05-24 标定，原 96.0)
 
 **将数据交给 Claude Code**: 汇报每次测试的实际值，Claude Code 计算平均值并与标定值比较，决定是否更新 `V_FORWARD` / `V_ROTATE`。
 

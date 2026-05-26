@@ -3,7 +3,7 @@ name: 常见错误处理指南
 category: reference
 field: code
 description: DSPy、LLM、Python、JSON 等常见错误的诊断与解决
-date: 2026-05-03
+date: 2026-05-26
 ---
 # Common Errors Guide
 
@@ -237,7 +237,7 @@ async def handler(data: RequestModel):
 ## Getting Help
 
 When stuck:
-1. Check `tech_docs/dspy/` for DSPy documentation
-2. Check `tech_docs/fastapi/` for FastAPI documentation
+1. Review DSPy signature design ADR: [changelog/005_dspy_signature_design.md](../../changelog/005_dspy_signature_design.md)
+2. Check FastAPI docs at [https://fastapi.tiangolo.com/](https://fastapi.tiangolo.com/)
 3. Review existing tests in `test/` for patterns
-4. Check project issues or discussions
+4. Check the [NODE_CREATE.md](../../../src/NODE_CREATE.md) developer guide for module creation patterns

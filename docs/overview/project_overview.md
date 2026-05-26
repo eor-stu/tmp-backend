@@ -3,7 +3,7 @@ name: 项目概览
 category: concept
 field: global
 description: AI 助手在项目中建立世界观的基准文档
-date: 2026-05-23
+date: 2026-05-26
 ---
 
 # 项目概览
@@ -123,8 +123,8 @@ AI Agent 核心模块，负责：
 
 - **LineDetector**：OpenCV 黑线检测 — ROI 裁剪（下半 60%）→ 灰度 → 高斯模糊 → 自适应阈值 → 轮廓查找 → 偏差计算（-1.0~+1.0）；`detect_upper()` 检查上半 40% 用于终点判定
 - **PIDController**：偏差 → 差速转向（Kp=30, Ki=1.0, Kd=10），支持抗积分饱和；丢线时 deviation=0 直行等待
-- **IntersectionDetector**：轮廓长宽比分类（h/w>2 竖线 + w/h>2 横线）+ 面积阈值（>30% ROI）→ 3 帧防抖确认路口
-- **Navigator**：状态机（FOLLOW_LINE → CROSSING → TURNING → DONE），消费 `get_commands()` 输出；过路口用 `car.control.forward(0.1)`，转向用 `car.control.turn(angle)`；终点检测：上半 40% 连续 3 帧无黑线 → 自动停车
+- **IntersectionDetector**：加权投票制 — 轮廓面积超过固定基线 1.5 倍得 2 票 + Sobel 水平边缘检测得 1 票 → 累积 >= 3 票且包含面积尖峰触发，水平信号 2 帧保持防闪烁
+- **Navigator**：状态机（FOLLOW_LINE → CROSSING → TURNING → DONE），消费 `get_commands()` 输出 `[turn(180), forward(N), turn(angle), arrive]` 指令序列；过路口用 `car.control.forward(0.15)`（基于 V_FORWARD=0.186 m/s），转向用 `car.control.turn(angle)`（基于 V_ROTATE=75.8 deg/s）；final_approach 模式：最后一段巡线结束后自动进入，仅靠终点检测判定到达；终点检测：上半 40% 连续 3 帧无黑线 → 自动停车
 
 Mock 模式支持：
 - 摄像头不可用 → 强制底盘也 mock，每 100 tick 自动生成虚拟路口

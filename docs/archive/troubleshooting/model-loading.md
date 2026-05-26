@@ -3,7 +3,7 @@ name: GGUF 模型加载故障排除
 category: reference
 field: code
 description: 模型文件不存在、CUDA 版本、GPU 内存等问题的诊断与解决
-date: 2026-05-03
+date: 2026-05-26
 ---
 # Model Loading Troubleshooting
 
@@ -130,7 +130,7 @@ print(f"CUDA available: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
 ### 2. Test Model Loading
 
 ```python
-from src.llm import load_model, get_model_and_cfg
+from src.llm.llama import load_model, get_model_and_cfg
 
 # Load model
 result = load_model("test", "LFM2.5-1.2B-Instruct-Q4_K_M")
@@ -147,7 +147,7 @@ if result.success:
 ### 3. Test Inference
 
 ```python
-from src.llm import get_model_and_cfg
+from src.llm.llama import get_model_and_cfg
 
 result = get_model_and_cfg("test")
 if result.success:

@@ -3,7 +3,7 @@ name: 文档系统 Memory Bank
 category: infra-rule
 field: global
 description: 文档系统的内存存储，目的在于给AI快速投喂上下文
-date: 2026-05-23
+date: 2026-05-26
 ---
 
 # 文档系统 Memory Bank
@@ -12,9 +12,9 @@ date: 2026-05-23
 
 1. 工作整体方向 - `navigation` 分支：基于视觉的巡线导航系统
 
-2. 当前具体任务 - Vision 巡线导航模块重构已完成（2026-05-23），后续待实车标定
+2. 当前具体任务 - Vision 巡线导航 Phase 7（2026-05-26）：get_commands 按路口重写完成、final_approach 模式已实现、命令格式修正，待硬件可用实车验证
 
-3. 任务的作用：重构后的巡线系统使用轮廓长宽比路口检测、自适应阈值二值化、标定物理接口过路口/转向、终点检测自动停车
+3. 任务的作用：当前巡线系统使用加权投票制路口检测（面积尖峰 2 票 + Sobel 水平边缘 1 票）、自适应阈值二值化、标定物理接口过路口/转向（V_FORWARD=0.186 m/s, V_ROTATE=75.8 deg/s）、终点检测自动停车、final_approach 模式
 
 4. 任务的工作目录：
 
@@ -24,21 +24,22 @@ date: 2026-05-23
 
 6. 任务预期结束时间：`2026-05-30`
 
-7. 任务状态：代码重构已完成，待实车标定验证
+7. 任务状态：Phase 7 命令修正已完成，get_commands 和 Navigator final_approach 均已实现，待硬件可用实车验证
 
 ## Part 2: Context Snapshot
 
-### Navigation 分支 (2026-05-23 重构完成)
-- Vision 巡线导航系统已重构：LineDetector (自适应阈值 + 终点检测) → PIDController (Ki=1.0) → IntersectionDetector (轮廓长宽比分类 + 30% 面积阈值) → Navigator (状态机 + car/control.py 标定接口)
-- 路口检测: 竖线(h/w>2) + 横线(w/h>2) 同时存在 + 总面积 > ROI 30% → 3帧防抖确认
-- 过路口: `car.control.forward(0.1)` 前进 0.1m（基于 V_FORWARD=0.215 m/s 标定）
-- 转向: `car.control.turn(±90)`（基于 V_ROTATE=96.0 deg/s 标定）
+### Navigation 分支 (2026-05-26 Phase 7 更新)
+- Vision 巡线导航系统：LineDetector (自适应阈值 + 终点检测) → PIDController (Ki=1.0) → IntersectionDetector (加权投票制) → Navigator (状态机 + final_approach + car/control.py 标定接口)
+- 路口检测: 加权投票制 — 轮廓面积超过固定基线 1.5 倍得 2 票 + Sobel 水平边缘得 1 票 → 累积 >= 3 票且包含面积尖峰触发，2 帧水平信号保持防闪烁，慢速衰减（-1/帧）
+- 过路口: `car.control.forward(0.15)` 前进 0.15m（基于 V_FORWARD=0.186 m/s 标定, 2026-05-24）
+- 转向: `car.control.turn(angle)`（基于 V_ROTATE=75.8 deg/s 标定, 2026-05-24）
 - 终点检测: 上半 40% 连续 3 帧无黑线 → 自动 DONE
+- final_approach: 所有指令执行完毕后进入，仅靠终点检测判定到达，不再计数路口
 - 状态机: FOLLOW_LINE → CROSSING → TURNING → ... → DONE
 - Mock 模式: 摄像头不可用时强制底盘 mock，每 100 tick 生成虚拟路口；过路口/转向 mock 阶段 time.sleep(2)
-- Navigator 直接消费 `get_commands()` 输出: `[{action: "forward"|"turn", param: float}]`
+- get_commands() 已重写：按功能性路口判定（4 方向邻接），输出 `[{action: "turn"|"forward"|"arrive", param: float}]`
+- Navigator 消费指令序列: `turn(180) → forward(N) → turn(angle) → ... → arrive`
 - 运动控制分离: 巡线差速保留直接电机控制，过路口/转向走 car/control.py 标定接口
-- TODO: get_commands() 设计重构
 - 标定工作流已设计（ADR-013），三脚本 + Claude Code 数据分析闭环，详见 docs/rule/calibration_runbook.md
 - smbus2 替代 smbus，解决 I2C 兼容性
 
