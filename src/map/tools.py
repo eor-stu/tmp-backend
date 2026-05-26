@@ -123,26 +123,83 @@ def _merge_consecutive_straights(actions: list[tuple[str, float]]) -> list[tuple
     return merged
 
 
+def _is_intersection(node_id: str, node_dict: dict) -> bool:
+    """
+    Determine if a road node is a true intersection.
+
+    A node is considered an intersection when ALL of the following are true:
+    1. The node itself is of type "nav" (a road node)
+    2. All 4 orthogonally adjacent cells (up/down/left/right at distance 1)
+       also contain "nav"-type nodes
+
+    This definition ensures the car only counts road junctions where
+    horizontal and vertical lines genuinely cross, and does NOT count:
+    - Dead-end road nodes (missing neighbors)
+    - Edge road nodes (one side has no road)
+    - Start/end "main"-type nodes like entrances or clinics
+    """
+    node = node_dict.get(node_id)
+    if node is None or node.type != "nav":
+        return False
+
+    x, y = int(node.x), int(node.y)
+    for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        neighbor_id = f"road_{x + dx}_{y + dy}"
+        neighbor = node_dict.get(neighbor_id)
+        if neighbor is None or neighbor.type != "nav":
+            return False
+
+    return True
+
+
 def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
     """
-    Convert a single-segment route between two nodes into car control commands.
+    Convert a path between two map nodes into car control commands.
+
+    The car navigates by following a black line on the ground. Commands are
+    expressed in terms of INTERSECTIONS (junction points where lines cross),
+    not raw grid coordinates.
+
+    An intersection is a road node whose 4 orthogonally adjacent cells are
+    all also roads. The car passes through intersections by following the
+    line; the only deliberate turn happens at the LAST direction change
+    on the path (where the car must choose a different direction to reach
+    the destination).
+
+    Example: entrance → pharmacy
+        Path: entrance → (grid nodes southbound) → road_2_5 → pharmacy
+        All intersections on path: road_2_7 (#1), road_2_5 (#2)
+        Last direction change: at road_2_5 (south → west)
+        #1 is passed through, #2 is the turning point
+        Commands: [forward(1), turn(-90)]
+
+    Example: internal_clinic → toilet
+        Path: IC → east to road_2_3 → south to road_2_7 → east to toilet
+        All intersections on path: road_2_3 (#1), road_2_5 (#2), road_2_7 (#3)
+        Last direction change: at road_2_7 (south → east)
+        #1 and #2 are passed through, #3 is the turning point
+        Commands: [forward(2), turn(90)]
 
     Args:
-        start: Starting node ID
-        end: Ending node ID
+        start: Starting node ID (e.g. "entrance", "internal_clinic")
+        end: Ending node ID (e.g. "pharmacy", "toilet")
 
     Returns:
         List of {action, param} dicts, e.g.:
-            [{"action": "forward", "param": 3.0}, {"action": "turn", "param": -90}]
+            [{"action": "forward", "param": 2.0}, {"action": "turn", "param": 90}]
     """
     map_data = get_map()
     path = map_data.dijkstra(start, end)
     if path is None or len(path) < 2:
         return []
 
-    node_dict = {n.id: n for n in map_data.nodes}
+    node_dict: dict[str, object] = {n.id: n for n in map_data.nodes}
 
-    actions: list[tuple[str, float]] = []
+    # ── Phase 1: Identify all intersections and direction changes on the path ──
+    # We need to know: which nodes are intersections, and where the path turns.
+    isect_indices: list[int] = []         # path indices of intersection nodes
+    turns: list[tuple[int, float]] = []    # (path_index, turn_angle) for each turn
+
     current_dir: AbsoluteDir | None = None
 
     for i in range(len(path) - 1):
@@ -157,32 +214,47 @@ def get_commands(start: str, end: str) -> list[dict[str, str | float]]:
 
         dx = next_node.x - current_node.x
         dy = next_node.y - current_node.y
-        distance = abs(dx) + abs(dy)
-
         target_dir = _get_absolute_direction(dx, dy)
 
+        # Record intersections. Skip the very first node of the path
+        # (the start location, which is a "main"-type node).
+        if i > 0 and _is_intersection(current_id, node_dict):
+            isect_indices.append(i)
+
         if current_dir is None:
-            if distance > 0:
-                actions.append(("forward", distance))
             current_dir = target_dir
             continue
 
         turn_angle = _get_relative_turn(current_dir, target_dir)
-
-        if turn_angle == 180:
-            if distance > 0:
-                actions.append(("forward", distance))
-            actions.append(("turn", 180))
-        elif turn_angle != 0:
-            actions.append(("turn", turn_angle))
-            if distance > 0:
-                actions.append(("forward", distance))
-        else:
-            if distance > 0:
-                actions.append(("forward", distance))
-
+        if turn_angle != 0:
+            turns.append((i, turn_angle))
         current_dir = target_dir
 
+    # ── Phase 2: Partition intersections around the LAST turn ──
+    # All intersections before the last turn are "passed through";
+    # the intersection at the last turn is the turning point (NOT counted
+    # in the forward parameter — the car stops and turns at it).
+    # Intersections after the last turn (if any) go to the final forward.
+    #
+    # If there are no turns, all intersections are passed through.
+    if turns:
+        turn_idx, turn_angle = turns[-1]
+
+        passed = sum(1 for idx in isect_indices if idx < turn_idx)
+        after = sum(1 for idx in isect_indices if idx > turn_idx)
+
+        actions: list[tuple[str, float]] = []
+        if passed > 0:
+            actions.append(("forward", float(passed)))
+        actions.append(("turn", float(turn_angle)))
+        if after > 0:
+            actions.append(("forward", float(after)))
+    else:
+        total = len(isect_indices)
+        actions = [("forward", float(total))] if total > 0 else []
+
+    # ── Cleanup ──
+    actions = [(a, p) for a, p in actions if not (a == "forward" and p == 0)]
     actions = _merge_consecutive_straights(actions)
 
     debug(f"[Map] Commands {start} → {end}: {len(actions)} actions")
