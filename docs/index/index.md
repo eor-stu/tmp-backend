@@ -78,6 +78,7 @@ date: 2026-05-26
 | [changelog/013_calibration_workflow.md](./changelog/013_calibration_workflow.md) | `adr` | Vision 标定工作流设计：三脚本 + Claude Code 数据分析闭环 |
 | [changelog/014_get_commands_rewrite.md](./changelog/014_get_commands_rewrite.md) | `adr` | get_commands() 按路口定义重写，不再把每个 road 节点当路口 |
 | [changelog/015_navigator_final_approach.md](./changelog/015_navigator_final_approach.md) | `adr` | Navigator 新增 final_approach 模式，路口过完后依靠终点检测判定到达 |
+| [changelog/016_face_recognition.md](./changelog/016_face_recognition.md) | `adr` | 人脸识别方案：face_recognition (dlib) 替代 DeepFace，JSON 用户数据库 |
 
 ---
 

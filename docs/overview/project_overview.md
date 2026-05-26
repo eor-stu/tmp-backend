@@ -21,6 +21,7 @@ date: 2026-05-26
 | **路线规划** | 根据目的地和用户需求（如"现在去洗手间"、"看病前"）生成/修改医院导航路线 |
 | **视觉导航** | OpenCV 黑线巡线 + PID 差速控制 + 路口检测，将路径指令转为实际行驶 |
 | **机器人控制** | `/car/*` API 接口实现底盘运动控制 |
+| **人脸识别** | face_recognition (dlib) 提取 128-d embedding + cosine 比对，支持注册与识别 |
 
 ### 核心用户流程
 
@@ -53,6 +54,7 @@ date: 2026-05-26
 | **STT** | whisper.cpp | 支持 CUDA 的语音转文字 |
 | **TTS** | Piper | 使用 RNN-T 模型实现文字转语音 |
 | **后端** | FastAPI + uvicorn + Pydantic | REST API + 运行时类型验证 |
+| **人脸识别** | face_recognition + dlib | 128-d 人脸 embedding 提取 |
 | **测试** | pytest + pytest-cov | 80%+ 覆盖率的单元/集成测试 |
 
 ### 核心依赖
@@ -70,6 +72,10 @@ pydantic
 
 # 工具
 python-dotenv
+
+# 人脸识别
+face_recognition
+dlib
 ```
 
 ## 4. 核心入口点
@@ -82,6 +88,7 @@ python-dotenv
 | `src/vision/` | 视觉巡线导航（黑线检测 + PID 控制 + 路口识别 + 状态机） |
 | `src/car/` | 机器人底盘控制（mock 模式） |
 | `src/voice/` | 语音模块 STT/TTS |
+| `src/face/` | 人脸识别模块（注册 + 识别，face_recognition/dlib） |
 | `src/llm/` | LLM 适配器（llama.cpp / DeepSeek） |
 
 ### 探索指南
@@ -145,6 +152,15 @@ API：`POST /vision/start_navigate`, `POST /vision/stop`, `GET /vision/status`
 #### LLM 适配器 (`src/llm/`)
 
 统一的大语言模型接口，支持本地 llama.cpp 推理和 DeepSeek 云端 API，通过 DSPy 框架调用。
+
+#### 人脸识别 (`src/face/`)
+
+用户人脸注册与识别模块，提供：
+- **用户注册**：上传人脸图片 + 姓名 → 提取 128-d embedding → 存入 `users.json`
+- **人脸识别**：上传人脸图片 → 提取 embedding → cosine 比对所有已注册用户 → 返回匹配结果
+- **用户数据**：JSON 文件存储，包含姓名、最近就诊诊室 ID、人脸 embedding
+
+API：`POST /face/register`, `POST /face/face-recog`
 
 ### 地图数据结构
 

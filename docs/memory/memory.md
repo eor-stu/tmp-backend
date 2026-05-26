@@ -66,5 +66,6 @@ date: 2026-05-26
 - `src/triager/requirement_collector.py`: docstring 指令, config max_tokens=256
 - `src/triager/route_patcher.py`: docstring 指令, config max_tokens=256, 删除 _format_locations
 - `model/LFM2.5-1.2B-Instruct-Q4_K_M.*.json`: n_ctx=4096, chat_template.default, max_tokens=512, repeat_penalty=1.1
-- `src/main.py`: 默认模型切换为 LFM2.5-1.2B, 新增 vision_router
+- `src/main.py`: 默认模型切换为 LFM2.5-1.2B, 新增 vision_router, 新增 face_router
 - `src/vision/`: 完整巡线导航模块（6 个文件）
+- `src/face/`: 人脸识别模块（user_db.py + routes.py）— face_recognition/dlib, POST /register + /face-recog

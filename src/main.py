@@ -21,6 +21,7 @@ from src.triager.routing import triager_router
 from src.car.routes import router as car_router
 from src.map.routes import router as map_router
 from src.vision.routes import router as vision_router
+from src.face.routes import router as face_router
 
 
 def parse_args():
@@ -76,6 +77,7 @@ app.include_router(triager_router, tags=["triager"])
 app.include_router(car_router)
 app.include_router(map_router)
 app.include_router(vision_router)
+app.include_router(face_router)
 
 
 @app.get("/health")
