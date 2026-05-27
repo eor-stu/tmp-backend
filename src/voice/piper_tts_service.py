@@ -44,6 +44,10 @@ class PiperTTSService:
             )
         return self._voice
 
+    def warm_up(self) -> None:
+        """预加载 Piper 模型，避免首次请求的冷启动延迟。"""
+        self._load_voice()
+
     def synthesize(
         self,
         text: str,

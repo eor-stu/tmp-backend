@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 
 from src.logger import info, error
 from src.voice.whisper_manager import whisper_manager
+from src.voice.piper_tts_service import piper_tts_service
 from src.voice.stt import router as stt_router
 from src.voice.tts import router as tts_router
 from src.triager.routing import triager_router
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle: start/stop whisper-server and configure LLM."""
     # Startup
     whisper_manager.start()
+    piper_tts_service.warm_up()
     if args.llm_online:
         from src.llm.deepseek import DeepseekLM
         dspy.configure(lm=DeepseekLM())
