@@ -111,7 +111,7 @@ def add_user(name: str, embedding: list[float]) -> None:
 
 
 def get_users() -> list[dict]:
-    """Return all users without face embeddings (for debugging)."""
+    """Return all users without face embeddings."""
     return [
         {"name": u["name"], "last_clinic_id": u.get("last_clinic_id")}
         for u in _load_users()

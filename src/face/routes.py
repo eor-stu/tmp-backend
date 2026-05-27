@@ -10,7 +10,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 
 from src.logger import info, error, warning
-from src.face.user_db import find_user_by_embedding, add_user
+from src.face.user_db import find_user_by_embedding, add_user, get_users
 
 router = APIRouter(prefix="/face", tags=["face"])
 
@@ -99,3 +99,9 @@ def face_register(
     except Exception as exc:
         error(f"[Face] Register failed: {exc}", exc_info=True)
         return FaceRegisterResponse(success=False, message="Registration failed")
+
+
+@router.get("/users")
+def list_users() -> list[dict]:
+    """返回所有注册用户信息（不含人脸 embedding）。"""
+    return get_users()
